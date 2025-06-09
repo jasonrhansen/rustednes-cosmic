@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Rustednes Cosmic
+Comment=An application for the COSMIC™ desktop
+Type=Application
+Icon=com.github.jasonrhansen.rustednes-cosmic
+Exec=rustednes-cosmic %F
+Terminal=false
+StartupNotify=true
+Categories=COSMIC
+Keywords=COSMIC
+MimeType=
