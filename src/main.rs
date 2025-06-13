@@ -2,6 +2,7 @@
 
 mod app;
 mod config;
+mod emulator;
 mod i18n;
 
 use rustednes_common::logger;

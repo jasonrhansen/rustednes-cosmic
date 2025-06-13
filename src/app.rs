@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::config::Config;
+use crate::emulator::Emulator;
 use crate::fl;
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
@@ -12,85 +13,15 @@ use cosmic::iced_core::image;
 use cosmic::prelude::*;
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{cosmic_theme, theme};
-use rustednes_common::state::StateManager;
-use rustednes_common::time::{SystemTimeSource, TimeSource};
 use rustednes_core::cartridge::Cartridge;
-use rustednes_core::cpu::CPU_FREQUENCY;
 use rustednes_core::input::Button;
-use rustednes_core::nes::Nes;
 use rustednes_core::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
-use rustednes_core::sink::*;
 use std::collections::HashMap;
-use std::mem;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!("../resources/icons/hicolor/scalable/apps/icon.svg");
-
-const CPU_CYCLE_TIME_NS: u64 = (1e9_f64 / CPU_FREQUENCY as f64) as u64 + 1;
-
-pub struct Emulator {
-    nes: Nes,
-    time_source: SystemTimeSource,
-    start_time_ns: u64,
-    emulated_cycles: u64,
-    emulated_instructions: u64,
-    state_manager: StateManager,
-    keymap: HashMap<KeyCode, Button>,
-    pixels: Arc<Mutex<PixelBuffer>>,
-}
-
-pub struct NullAudioSink;
-
-impl AudioSink for NullAudioSink {
-    fn write_sample(&mut self, _frame: f32) {
-        // Do nothing
-    }
-
-    fn samples_written(&self) -> usize {
-        0
-    }
-}
-
-type PixelBuffer = [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4];
-
-pub struct VideoFrameSink<'a> {
-    pixels: &'a mut PixelBuffer,
-    frame_written: bool,
-}
-
-impl<'a> VideoFrameSink<'a> {
-    pub fn new(pixels: &'a mut PixelBuffer) -> Self {
-        VideoFrameSink {
-            pixels,
-            frame_written: false,
-        }
-    }
-}
-
-impl<'a> VideoSink for VideoFrameSink<'a> {
-    fn write_frame(&mut self, frame_buffer: &[u8]) {
-        for (i, palette_index) in frame_buffer.iter().enumerate() {
-            let pixel = XRGB8888_PALETTE[*palette_index as usize];
-            let offset = i * 4;
-
-            self.pixels[offset] = (pixel >> 16) as u8;
-            self.pixels[offset + 1] = (pixel >> 8) as u8;
-            self.pixels[offset + 2] = pixel as u8;
-            self.pixels[offset + 3] = 0x77;
-        }
-        self.frame_written = true;
-    }
-
-    fn frame_written(&self) -> bool {
-        self.frame_written
-    }
-
-    fn pixel_size(&self) -> usize {
-        mem::size_of::<u32>()
-    }
-}
 
 /// The application model stores app-specific state used to describe its interface and
 /// drive its logic.
@@ -148,7 +79,7 @@ impl cosmic::Application for AppModel {
 
     fn init(core: cosmic::Core, flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
         // Create a nav bar with three page items.
-        let mut nav = nav_bar::Model::default();
+        let nav = nav_bar::Model::default();
 
         let mut keymap = HashMap::new();
         keymap.insert(KeyCode::KeyX, Button::A);
@@ -159,9 +90,6 @@ impl cosmic::Application for AppModel {
         keymap.insert(KeyCode::ArrowDown, Button::Down);
         keymap.insert(KeyCode::ArrowLeft, Button::Left);
         keymap.insert(KeyCode::ArrowRight, Button::Right);
-
-        let time_source = SystemTimeSource {};
-        let start_time_ns = time_source.time_ns();
 
         let mut app = AppModel {
             core,
@@ -180,20 +108,11 @@ impl cosmic::Application for AppModel {
                     }
                 })
                 .unwrap_or_default(),
-            emulator: Emulator {
-                nes: Nes::new(flags.rom.expect("No ROM passed to emulator")),
-
-                time_source,
-                start_time_ns,
-
-                emulated_cycles: 0,
-                emulated_instructions: 0,
-
-                state_manager: StateManager::new(flags.rom_path.clone(), 10),
-
+            emulator: Emulator::new(
+                flags.rom.expect("rom to exist"),
+                flags.rom_path.clone(),
                 keymap,
-                pixels: Arc::new(Mutex::new([0u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4])),
-            },
+            ),
             rom_path: flags.rom_path,
         };
 
@@ -233,7 +152,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn view(&self) -> Element<Self::Message> {
-        let pixels = Arc::clone(&self.emulator.pixels);
+        let pixels = Arc::clone(&Emulator::pixels(&self.emulator));
         let pixels = pixels.lock().unwrap();
 
         let image_handle =
@@ -309,43 +228,13 @@ impl cosmic::Application for AppModel {
                 }
             },
             Message::KeyDown(_modifiers, key_code) => {
-                if let Some(button) = self.emulator.keymap.get(&key_code) {
-                    self.emulator
-                        .nes
-                        .interconnect
-                        .input
-                        .game_pad_1
-                        .set_button_pressed(*button, true)
-                }
+                self.emulator.key_down(key_code);
             }
             Message::KeyUp(_modifiers, key_code) => {
-                if let Some(button) = self.emulator.keymap.get(&key_code) {
-                    self.emulator
-                        .nes
-                        .interconnect
-                        .input
-                        .game_pad_1
-                        .set_button_pressed(*button, false)
-                }
+                self.emulator.key_up(key_code);
             }
             Message::Tick => {
-                let pixels = Arc::clone(&self.emulator.pixels);
-                let mut pixels = pixels.lock().unwrap();
-                let mut video_sink = VideoFrameSink::new(&mut pixels);
-
-                let target_time_ns =
-                    self.emulator.time_source.time_ns() - self.emulator.start_time_ns;
-                let target_cycles = target_time_ns / CPU_CYCLE_TIME_NS;
-
-                while self.emulator.emulated_cycles < target_cycles {
-                    let (cycles, _) = self
-                        .emulator
-                        .nes
-                        .step(&mut video_sink, &mut NullAudioSink {});
-
-                    self.emulator.emulated_cycles += cycles as u64;
-                    self.emulator.emulated_instructions += 1;
-                }
+                self.emulator.tick();
             }
         }
         Task::none()
