@@ -11,12 +11,7 @@ use rustednes_core::{
     ppu::{SCREEN_HEIGHT, SCREEN_WIDTH},
     sink::{AudioSink, VideoSink, XRGB8888_PALETTE},
 };
-use std::{
-    collections::HashMap,
-    mem,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, mem, path::PathBuf};
 
 pub const CPU_CYCLE_TIME_NS: u64 = (1e9_f64 / CPU_FREQUENCY as f64) as u64 + 1;
 
@@ -28,7 +23,7 @@ pub struct Emulator {
     emulated_instructions: u64,
     state_manager: StateManager,
     keymap: HashMap<KeyCode, Button>,
-    pixels: Arc<Mutex<PixelBuffer>>,
+    pixels: &'static mut [u8],
 }
 
 impl Emulator {
@@ -44,14 +39,12 @@ impl Emulator {
             emulated_instructions: 0,
             state_manager: StateManager::new(rom_path, 10),
             keymap,
-            pixels: Arc::new(Mutex::new([0u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4])),
+            pixels: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4].leak(),
         }
     }
 
     pub fn tick(&mut self) {
-        let pixels = Arc::clone(&self.pixels);
-        let mut pixels = pixels.lock().unwrap();
-        let mut video_sink = VideoFrameSink::new(&mut pixels);
+        let mut video_sink = VideoFrameSink::new(self.pixels);
 
         let target_time_ns = self.time_source.time_ns() - self.start_time_ns;
         let target_cycles = target_time_ns / CPU_CYCLE_TIME_NS;
@@ -64,8 +57,8 @@ impl Emulator {
         }
     }
 
-    pub fn pixels(&self) -> &Arc<Mutex<PixelBuffer>> {
-        &self.pixels
+    pub fn pixels(&self) -> &[u8] {
+        self.pixels
     }
 
     pub fn key_down(&mut self, key_code: KeyCode) {
@@ -99,7 +92,7 @@ impl AudioSink for NullAudioSink {
     }
 }
 
-pub type PixelBuffer = [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4];
+pub type PixelBuffer = [u8];
 
 pub struct VideoFrameSink<'a> {
     pixels: &'a mut PixelBuffer,

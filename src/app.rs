@@ -5,7 +5,7 @@ use crate::emulator::Emulator;
 use crate::fl;
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
-use cosmic::iced::alignment::Horizontal;
+use cosmic::iced::alignment::{Horizontal, Vertical};
 use cosmic::iced::keyboard::key::{Code as KeyCode, Physical};
 use cosmic::iced::keyboard::{Event as KeyEvent, Modifiers};
 use cosmic::iced::{event, window, Alignment, Event, Length, Subscription};
@@ -18,8 +18,6 @@ use rustednes_core::input::Button;
 use rustednes_core::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
-
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 const APP_ICON: &[u8] = include_bytes!("../resources/icons/hicolor/scalable/apps/icon.svg");
 
@@ -152,20 +150,37 @@ impl cosmic::Application for AppModel {
     }
 
     fn view(&self) -> Element<Self::Message> {
-        let pixels = Arc::clone(&Emulator::pixels(&self.emulator));
-        let pixels = pixels.lock().unwrap();
+        widget::responsive(|size| {
+            let image_handle = image::Handle::from_rgba(
+                SCREEN_WIDTH as u32,
+                SCREEN_HEIGHT as u32,
+                self.emulator.pixels().to_vec(),
+            );
 
-        let image_handle =
-            image::Handle::from_rgba(SCREEN_WIDTH as u32, SCREEN_HEIGHT as u32, pixels.to_vec());
+            let screen_ratio = SCREEN_WIDTH as f32 / SCREEN_HEIGHT as f32;
+            let widget_ratio = size.width / size.height;
 
-        widget::column()
-            .push(
-                widget::image(image_handle)
-                    .width(Length::Fill)
-                    .height(Length::Fill),
-            )
-            .align_x(Horizontal::Center)
-            .into()
+            let (width, height) = if screen_ratio > widget_ratio {
+                (
+                    size.width,
+                    size.width * (SCREEN_HEIGHT as f32 / SCREEN_WIDTH as f32),
+                )
+            } else {
+                (screen_ratio * size.height, size.height)
+            };
+
+            widget::column()
+                .push(
+                    widget::row()
+                        .push(widget::image(image_handle).width(width).height(height))
+                        .height(Length::Fill)
+                        .align_y(Vertical::Center),
+                )
+                .width(Length::Fill)
+                .align_x(Horizontal::Center)
+                .into()
+        })
+        .into()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
