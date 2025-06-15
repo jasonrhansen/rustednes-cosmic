@@ -7,16 +7,12 @@ mod emulator;
 mod i18n;
 mod video;
 
-use rustednes_common::logger;
-use rustednes_core::cartridge::*;
-
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use emulator::load_rom;
+use rustednes_common::logger;
+use std::{error::Error, path::PathBuf};
 use tracing::info;
-
-use std::error::Error;
-use std::fs::File;
-use std::path::{Path, PathBuf};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about, long_about = None)]
@@ -60,23 +56,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     Ok(())
-}
-
-fn load_rom(filename: &Path) -> Result<Cartridge, Box<dyn Error>> {
-    let file = File::open(filename)?;
-
-    let cartridge = match filename.extension() {
-        Some(ext) if ext == "zip" => {
-            info!("Unzipping {}", filename.display());
-            let mut zip = zip::ZipArchive::new(&file)?;
-            let mut zip_file = zip.by_index(0)?;
-            Cartridge::load(&mut zip_file)?
-        }
-        _ => {
-            let mut file = file;
-            Cartridge::load(&mut file)?
-        }
-    };
-
-    Ok(cartridge)
 }

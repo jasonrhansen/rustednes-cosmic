@@ -1,3 +1,7 @@
+use crate::{
+    audio::{CpalDriver, CpalDriverTimeSource},
+    video::VideoFrameSink,
+};
 use cosmic::iced::keyboard::key::Code as KeyCode;
 use rustednes_common::{audio::AudioDriver, time::TimeSource};
 use rustednes_core::{
@@ -8,12 +12,11 @@ use rustednes_core::{
     nes::Nes,
     ppu::{SCREEN_HEIGHT, SCREEN_WIDTH},
 };
-use std::{collections::HashMap, path::PathBuf};
-use tracing::info;
-
-use crate::{
-    audio::{CpalDriver, CpalDriverTimeSource},
-    video::VideoFrameSink,
+use std::error::Error;
+use std::{
+    collections::HashMap,
+    fs::File,
+    path::{Path, PathBuf},
 };
 
 pub const CPU_CYCLE_TIME_NS: u64 = (1e9_f64 / CPU_FREQUENCY as f64) as u64 + 1;
@@ -35,7 +38,7 @@ impl Emulator {
     pub fn new(rom: Cartridge, _rom_path: PathBuf, keymap: HashMap<KeyCode, Button>) -> Self {
         let audio_driver = CpalDriver::new(APU_SAMPLE_RATE).unwrap();
         let time_source = audio_driver.time_source();
-        info!("Audio sample rate: {}", audio_driver.sample_rate());
+        tracing::info!("Audio sample rate: {}", audio_driver.sample_rate());
         let start_time_ns = time_source.time_ns();
 
         Self {
@@ -67,6 +70,19 @@ impl Emulator {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.nes.reset();
+        self.start_time_ns = self.time_source.time_ns();
+        self.emulated_cycles = 0;
+        self.emulated_instructions = 0;
+    }
+
+    pub fn load_rom(&mut self, rom: Cartridge, _rom_path: PathBuf) {
+        self.reset();
+        self.nes = Nes::new(rom);
+        // self.state_manager: StateManager::new(rom_path, 10),
+    }
+
     pub fn pixels(&self) -> &[u8] {
         &self.pixels
     }
@@ -88,4 +104,23 @@ impl Emulator {
                 .set_button_pressed(*button, pressed)
         }
     }
+}
+
+pub fn load_rom(filename: &Path) -> Result<Cartridge, Box<dyn Error>> {
+    let file = File::open(filename)?;
+
+    let cartridge = match filename.extension() {
+        Some(ext) if ext == "zip" => {
+            tracing::info!("Unzipping {}", filename.display());
+            let mut zip = zip::ZipArchive::new(&file)?;
+            let mut zip_file = zip.by_index(0)?;
+            Cartridge::load(&mut zip_file)?
+        }
+        _ => {
+            let mut file = file;
+            Cartridge::load(&mut file)?
+        }
+    };
+
+    Ok(cartridge)
 }

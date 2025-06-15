@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 use crate::config::Config;
-use crate::emulator::Emulator;
+use crate::emulator::{load_rom, Emulator};
 use crate::fl;
 use cosmic::app::context_drawer;
 use cosmic::cosmic_config::{self, CosmicConfigEntry};
@@ -13,6 +13,7 @@ use cosmic::iced_core::image;
 use cosmic::prelude::*;
 use cosmic::widget::{self, menu, nav_bar};
 use cosmic::{cosmic_theme, theme};
+use rfd::AsyncFileDialog;
 use rustednes_core::cartridge::Cartridge;
 use rustednes_core::input::Button;
 use rustednes_core::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
@@ -29,9 +30,9 @@ pub struct AppModel {
     nav: nav_bar::Model,
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     config: Config,
-
     emulator: Emulator,
     rom_path: PathBuf,
+    opening_file: bool,
 }
 
 /// Messages emitted by the application and its widgets.
@@ -41,7 +42,8 @@ pub enum Message {
     ToggleContextPage(ContextPage),
     UpdateConfig(Config),
     LaunchUrl(String),
-
+    OpenFileDialog,
+    OpenFileResult(Option<PathBuf>),
     KeyDown(Modifiers, KeyCode),
     KeyUp(Modifiers, KeyCode),
     Tick,
@@ -112,6 +114,7 @@ impl cosmic::Application for AppModel {
                 keymap,
             ),
             rom_path: flags.rom_path,
+            opening_file: false,
         };
 
         let command = app.update_title();
@@ -120,13 +123,26 @@ impl cosmic::Application for AppModel {
     }
 
     fn header_start(&self) -> Vec<Element<Self::Message>> {
-        let menu_bar = menu::bar(vec![menu::Tree::with_children(
-            menu::root(fl!("view")),
-            menu::items(
-                &self.key_binds,
-                vec![menu::Item::Button(fl!("about"), None, MenuAction::About)],
+        let menu_bar = menu::bar(vec![
+            menu::Tree::with_children(
+                menu::root(fl!("file")),
+                menu::items(
+                    &self.key_binds,
+                    vec![menu::Item::Button(
+                        fl!("open-rom"),
+                        None,
+                        MenuAction::OpenFile,
+                    )],
+                ),
             ),
-        )]);
+            menu::Tree::with_children(
+                menu::root(fl!("view")),
+                menu::items(
+                    &self.key_binds,
+                    vec![menu::Item::Button(fl!("about"), None, MenuAction::About)],
+                ),
+            ),
+        ]);
 
         vec![menu_bar.into()]
     }
@@ -242,6 +258,33 @@ impl cosmic::Application for AppModel {
                     eprintln!("failed to open {url:?}: {err}");
                 }
             },
+            Message::OpenFileDialog => {
+                if !self.opening_file {
+                    self.opening_file = true;
+                    return Task::future(async {
+                        let file = AsyncFileDialog::new()
+                            .add_filter("NES ROM file", &["nes", "rom"])
+                            .pick_file()
+                            .await;
+
+                        cosmic::Action::App(Message::OpenFileResult(
+                            file.map(|f| f.path().to_path_buf()),
+                        ))
+                    });
+                }
+            }
+            Message::OpenFileResult(path_buf) => {
+                self.opening_file = false;
+                if let Some(path_buf) = path_buf {
+                    if let Ok(rom) = load_rom(&path_buf) {
+                        self.rom_path = path_buf.clone();
+                        self.emulator.load_rom(rom, path_buf);
+                    } else {
+                        tracing::error!("error loading rom");
+                        // TODO: Show error message to user.
+                    }
+                }
+            }
             Message::KeyDown(_modifiers, key_code) => {
                 self.emulator.key_down(key_code);
             }
@@ -322,6 +365,7 @@ pub enum ContextPage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuAction {
     About,
+    OpenFile,
 }
 
 impl menu::action::MenuAction for MenuAction {
@@ -330,6 +374,7 @@ impl menu::action::MenuAction for MenuAction {
     fn message(&self) -> Self::Message {
         match self {
             MenuAction::About => Message::ToggleContextPage(ContextPage::About),
+            MenuAction::OpenFile => Message::OpenFileDialog,
         }
     }
 }
