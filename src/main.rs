@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
 
 mod app;
+mod audio;
 mod config;
 mod emulator;
 mod i18n;
+mod video;
 
 use rustednes_common::logger;
 use rustednes_core::cartridge::*;
