@@ -260,6 +260,7 @@ impl cosmic::Application for AppModel {
             },
             Message::OpenFileDialog => {
                 if !self.opening_file {
+                    self.emulator.pause_emulation();
                     self.opening_file = true;
                     return Task::future(async {
                         let file = AsyncFileDialog::new()
@@ -275,6 +276,7 @@ impl cosmic::Application for AppModel {
             }
             Message::OpenFileResult(path_buf) => {
                 self.opening_file = false;
+                self.emulator.resume_emulation();
                 if let Some(path_buf) = path_buf {
                     if let Ok(rom) = load_rom(&path_buf) {
                         self.rom_path = path_buf.clone();

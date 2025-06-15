@@ -26,6 +26,7 @@ pub struct Emulator {
     audio_driver: CpalDriver,
     time_source: CpalDriverTimeSource,
     start_time_ns: u64,
+    paused_time_ns: Option<u64>,
     emulated_cycles: u64,
     emulated_instructions: u64,
     // TODO: Handle save states.
@@ -46,6 +47,7 @@ impl Emulator {
             audio_driver,
             time_source,
             start_time_ns,
+            paused_time_ns: None,
             emulated_cycles: 0,
             emulated_instructions: 0,
             // state_manager: StateManager::new(rom_path, 10),
@@ -55,6 +57,10 @@ impl Emulator {
     }
 
     pub fn tick(&mut self) {
+        if self.paused_time_ns.is_some() {
+            return;
+        }
+
         let mut video_sink = VideoFrameSink::new(self.pixels.as_mut_slice());
 
         let target_time_ns = self.time_source.time_ns() - self.start_time_ns;
@@ -67,6 +73,18 @@ impl Emulator {
 
             self.emulated_cycles += cycles as u64;
             self.emulated_instructions += 1;
+        }
+    }
+
+    pub fn pause_emulation(&mut self) {
+        self.paused_time_ns = Some(self.time_source.time_ns());
+    }
+
+    pub fn resume_emulation(&mut self) {
+        if let Some(paused_time_ns) = self.paused_time_ns {
+            let paused_duration_ns = self.time_source.time_ns() - paused_time_ns;
+            self.start_time_ns += paused_duration_ns;
+            self.paused_time_ns = None;
         }
     }
 
