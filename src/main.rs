@@ -9,8 +9,10 @@ mod video;
 
 use clap::Parser;
 use clap_verbosity_flag::{InfoLevel, Verbosity};
+use cosmic::iced::Size;
 use emulator::load_rom;
 use rustednes_common::logger;
+use rustednes_core::ppu::{SCREEN_HEIGHT, SCREEN_WIDTH};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
 
@@ -36,12 +38,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Enable localizations to be applied.
     i18n::init(&requested_languages);
 
+    let titlebar_height = 49.0;
+
     // Settings for configuring the application window and iced runtime.
-    let settings = cosmic::app::Settings::default().size_limits(
-        cosmic::iced::Limits::NONE
-            .min_width(360.0)
-            .min_height(180.0),
-    );
+    let settings = cosmic::app::Settings::default()
+        .size_limits(
+            cosmic::iced::Limits::NONE
+                .min_width(SCREEN_WIDTH as f32)
+                .min_height(SCREEN_HEIGHT as f32 + titlebar_height),
+        )
+        .size(Size::new(
+            SCREEN_WIDTH as f32 * 3.0,
+            SCREEN_HEIGHT as f32 * 3.0 + titlebar_height,
+        ));
 
     let rom = if let Some(rom_path) = &opt.rom_path {
         let rom = load_rom(&rom_path)?;

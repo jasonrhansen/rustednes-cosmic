@@ -25,7 +25,7 @@ impl<'a> VideoSink for VideoFrameSink<'a> {
             self.pixels[offset] = (pixel >> 16) as u8;
             self.pixels[offset + 1] = (pixel >> 8) as u8;
             self.pixels[offset + 2] = pixel as u8;
-            self.pixels[offset + 3] = 0x77;
+            self.pixels[offset + 3] = 0xFF;
         }
         self.frame_written = true;
     }
