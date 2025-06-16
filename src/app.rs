@@ -11,7 +11,7 @@ use cosmic::iced::keyboard::{Event as KeyEvent, Modifiers};
 use cosmic::iced::{event, window, Alignment, Event, Length, Subscription};
 use cosmic::iced_core::image;
 use cosmic::prelude::*;
-use cosmic::widget::{self, menu, nav_bar};
+use cosmic::widget::{self, menu};
 use cosmic::{cosmic_theme, theme};
 use rfd::AsyncFileDialog;
 use rustednes_core::cartridge::Cartridge;
@@ -27,7 +27,6 @@ const APP_ICON: &[u8] = include_bytes!("../resources/icons/hicolor/scalable/apps
 pub struct AppModel {
     core: cosmic::Core,
     context_page: ContextPage,
-    nav: nav_bar::Model,
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     config: Config,
     emulator: Option<Emulator>,
@@ -76,13 +75,9 @@ impl cosmic::Application for AppModel {
     }
 
     fn init(core: cosmic::Core, flags: Self::Flags) -> (Self, Task<cosmic::Action<Self::Message>>) {
-        // Create a nav bar with three page items.
-        let nav = nav_bar::Model::default();
-
         let mut app = AppModel {
             core,
             context_page: ContextPage::default(),
-            nav,
             key_binds: HashMap::new(),
             config: cosmic_config::Config::new(Self::APP_ID, Config::VERSION)
                 .map(|context| match Config::get_entry(&context) {
@@ -130,10 +125,6 @@ impl cosmic::Application for AppModel {
         ]);
 
         vec![menu_bar.into()]
-    }
-
-    fn nav_model(&self) -> Option<&nav_bar::Model> {
-        Some(&self.nav)
     }
 
     fn context_drawer(&self) -> Option<context_drawer::ContextDrawer<Self::Message>> {
@@ -288,6 +279,8 @@ impl cosmic::Application for AppModel {
                         // TODO: Show error message to user.
                     }
                 }
+
+                return self.update_title();
             }
             Message::KeyDown(_modifiers, key_code) => {
                 if let Some(emulator) = &mut self.emulator {
@@ -306,13 +299,6 @@ impl cosmic::Application for AppModel {
             }
         }
         Task::none()
-    }
-
-    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<cosmic::Action<Self::Message>> {
-        // Activate the page in the model.
-        self.nav.activate(id);
-
-        self.update_title()
     }
 }
 
