@@ -5,3 +5,8 @@ about = About
 view = View
 page-id = Page { $num }
 git-description = Git commit {$hash} on {$date}
+
+emulation = Emulation
+pause = Pause
+unpause = Unpause
+reset = Reset

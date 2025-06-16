@@ -90,6 +90,18 @@ impl Emulator {
         }
     }
 
+    pub fn toggle_paused(&mut self) {
+        if self.is_paused() {
+            self.resume_emulation();
+        } else {
+            self.pause_emulation();
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused_time_ns.is_some()
+    }
+
     pub fn reset(&mut self) {
         self.nes.reset();
         self.start_time_ns = self.time_source.time_ns();

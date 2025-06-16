@@ -45,6 +45,8 @@ pub enum Message {
     KeyDown(Modifiers, KeyCode),
     KeyUp(Modifiers, KeyCode),
     Tick,
+    ToggleEmulation,
+    ResetEmulation,
 }
 
 #[derive(Default)]
@@ -103,7 +105,7 @@ impl cosmic::Application for AppModel {
     }
 
     fn header_start(&self) -> Vec<Element<Self::Message>> {
-        let menu_bar = menu::bar(vec![
+        let mut menu_trees = vec![
             menu::Tree::with_children(
                 menu::root(fl!("file")),
                 menu::items(
@@ -122,7 +124,30 @@ impl cosmic::Application for AppModel {
                     vec![menu::Item::Button(fl!("about"), None, MenuAction::About)],
                 ),
             ),
-        ]);
+        ];
+
+        if let Some(emulator) = &self.emulator {
+            menu_trees.push(menu::Tree::with_children(
+                menu::root(fl!("emulation")),
+                menu::items(
+                    &self.key_binds,
+                    vec![
+                        menu::Item::Button(
+                            if emulator.is_paused() {
+                                fl!("unpause")
+                            } else {
+                                fl!("pause")
+                            },
+                            None,
+                            MenuAction::ToggleEmulation,
+                        ),
+                        menu::Item::Button(fl!("reset"), None, MenuAction::ResetEmulation),
+                    ],
+                ),
+            ));
+        }
+
+        let menu_bar = menu::bar(menu_trees);
 
         vec![menu_bar.into()]
     }
@@ -167,7 +192,7 @@ impl cosmic::Application for AppModel {
                     .into()
             } else {
                 // widget::button(fl!("open-rom"), Message::OpenFileDialog)
-                widget::column().into()
+                widget::list_column().into()
             };
 
             widget::column()
@@ -297,6 +322,17 @@ impl cosmic::Application for AppModel {
                     emulator.tick();
                 }
             }
+            Message::ToggleEmulation => {
+                if let Some(emulator) = &mut self.emulator {
+                    emulator.toggle_paused();
+                }
+            }
+            Message::ResetEmulation => {
+                if let Some(emulator) = &mut self.emulator {
+                    // TODO: This has issues that need to be looked into.
+                    emulator.reset();
+                }
+            }
         }
         Task::none()
     }
@@ -379,6 +415,8 @@ pub enum ContextPage {
 pub enum MenuAction {
     About,
     OpenFile,
+    ToggleEmulation,
+    ResetEmulation,
 }
 
 impl menu::action::MenuAction for MenuAction {
@@ -388,6 +426,8 @@ impl menu::action::MenuAction for MenuAction {
         match self {
             MenuAction::About => Message::ToggleContextPage(ContextPage::About),
             MenuAction::OpenFile => Message::OpenFileDialog,
+            MenuAction::ToggleEmulation => Message::ToggleEmulation,
+            MenuAction::ResetEmulation => Message::ResetEmulation,
         }
     }
 }
