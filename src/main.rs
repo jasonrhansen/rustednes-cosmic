@@ -19,7 +19,7 @@ use tracing::info;
 struct Opt {
     /// The name of the ROM to load
     #[arg(name = "ROM")]
-    rom_path: PathBuf,
+    rom_path: Option<PathBuf>,
 
     #[clap(flatten)]
     verbose: Verbosity<InfoLevel>,
@@ -43,17 +43,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             .min_height(180.0),
     );
 
-    let rom = load_rom(&opt.rom_path)?;
-    info!("{:?}", rom);
-    let rom_path = opt.rom_path.to_path_buf();
+    let rom = if let Some(rom_path) = &opt.rom_path {
+        let rom = load_rom(&rom_path)?;
+        info!("{:?}", rom);
+        let rom_path = rom_path.to_path_buf();
+        Some((rom, rom_path))
+    } else {
+        None
+    };
 
-    cosmic::app::run::<app::AppModel>(
-        settings,
-        app::Flags {
-            rom: Some(rom),
-            rom_path,
-        },
-    )?;
+    cosmic::app::run::<app::AppModel>(settings, app::Flags { rom })?;
 
     Ok(())
 }

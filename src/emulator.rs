@@ -33,10 +33,11 @@ pub struct Emulator {
     // state_manager: StateManager,
     keymap: HashMap<KeyCode, Button>,
     pixels: Vec<u8>,
+    rom_path: PathBuf,
 }
 
 impl Emulator {
-    pub fn new(rom: Cartridge, _rom_path: PathBuf, keymap: HashMap<KeyCode, Button>) -> Self {
+    pub fn new(rom: Cartridge, rom_path: PathBuf, keymap: HashMap<KeyCode, Button>) -> Self {
         let audio_driver = CpalDriver::new(APU_SAMPLE_RATE).unwrap();
         let time_source = audio_driver.time_source();
         tracing::info!("Audio sample rate: {}", audio_driver.sample_rate());
@@ -53,6 +54,7 @@ impl Emulator {
             // state_manager: StateManager::new(rom_path, 10),
             keymap,
             pixels: vec![0u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
+            rom_path,
         }
     }
 
@@ -95,9 +97,10 @@ impl Emulator {
         self.emulated_instructions = 0;
     }
 
-    pub fn load_rom(&mut self, rom: Cartridge, _rom_path: PathBuf) {
+    pub fn load_rom(&mut self, rom: Cartridge, rom_path: PathBuf) {
         self.reset();
         self.nes = Nes::new(rom);
+        self.rom_path = rom_path;
         // self.state_manager: StateManager::new(rom_path, 10),
     }
 
@@ -121,6 +124,10 @@ impl Emulator {
                 .game_pad_1
                 .set_button_pressed(*button, pressed)
         }
+    }
+
+    pub fn rom_path(&self) -> &Path {
+        &self.rom_path
     }
 }
 

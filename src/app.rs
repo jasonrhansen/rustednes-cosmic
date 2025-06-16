@@ -30,8 +30,7 @@ pub struct AppModel {
     nav: nav_bar::Model,
     key_binds: HashMap<menu::KeyBind, MenuAction>,
     config: Config,
-    emulator: Emulator,
-    rom_path: PathBuf,
+    emulator: Option<Emulator>,
     opening_file: bool,
 }
 
@@ -51,8 +50,7 @@ pub enum Message {
 
 #[derive(Default)]
 pub struct Flags {
-    pub rom: Option<Cartridge>,
-    pub rom_path: PathBuf,
+    pub rom: Option<(Cartridge, PathBuf)>,
 }
 
 /// Create a COSMIC application from the app model
@@ -81,16 +79,6 @@ impl cosmic::Application for AppModel {
         // Create a nav bar with three page items.
         let nav = nav_bar::Model::default();
 
-        let mut keymap = HashMap::new();
-        keymap.insert(KeyCode::KeyX, Button::A);
-        keymap.insert(KeyCode::KeyZ, Button::B);
-        keymap.insert(KeyCode::Space, Button::Select);
-        keymap.insert(KeyCode::Enter, Button::Start);
-        keymap.insert(KeyCode::ArrowUp, Button::Up);
-        keymap.insert(KeyCode::ArrowDown, Button::Down);
-        keymap.insert(KeyCode::ArrowLeft, Button::Left);
-        keymap.insert(KeyCode::ArrowRight, Button::Right);
-
         let mut app = AppModel {
             core,
             context_page: ContextPage::default(),
@@ -108,12 +96,9 @@ impl cosmic::Application for AppModel {
                     }
                 })
                 .unwrap_or_default(),
-            emulator: Emulator::new(
-                flags.rom.expect("rom to exist"),
-                flags.rom_path.clone(),
-                keymap,
-            ),
-            rom_path: flags.rom_path,
+            emulator: flags
+                .rom
+                .map(|(rom, rom_path)| Emulator::new(rom, rom_path, AppModel::keymap())),
             opening_file: false,
         };
 
@@ -167,28 +152,37 @@ impl cosmic::Application for AppModel {
 
     fn view(&self) -> Element<Self::Message> {
         widget::responsive(|size| {
-            let image_handle = image::Handle::from_rgba(
-                SCREEN_WIDTH as u32,
-                SCREEN_HEIGHT as u32,
-                self.emulator.pixels().to_vec(),
-            );
+            let main_element: Element<Self::Message> = if let Some(emulator) = &self.emulator {
+                let image_handle = image::Handle::from_rgba(
+                    SCREEN_WIDTH as u32,
+                    SCREEN_HEIGHT as u32,
+                    emulator.pixels().to_vec(),
+                );
 
-            let screen_ratio = SCREEN_WIDTH as f32 / SCREEN_HEIGHT as f32;
-            let widget_ratio = size.width / size.height;
+                let screen_ratio = SCREEN_WIDTH as f32 / SCREEN_HEIGHT as f32;
+                let widget_ratio = size.width / size.height;
 
-            let (width, height) = if screen_ratio > widget_ratio {
-                (
-                    size.width,
-                    size.width * (SCREEN_HEIGHT as f32 / SCREEN_WIDTH as f32),
-                )
+                let (width, height) = if screen_ratio > widget_ratio {
+                    (
+                        size.width,
+                        size.width * (SCREEN_HEIGHT as f32 / SCREEN_WIDTH as f32),
+                    )
+                } else {
+                    (screen_ratio * size.height, size.height)
+                };
+                widget::image(image_handle)
+                    .width(width)
+                    .height(height)
+                    .into()
             } else {
-                (screen_ratio * size.height, size.height)
+                // widget::button(fl!("open-rom"), Message::OpenFileDialog)
+                widget::column().into()
             };
 
             widget::column()
                 .push(
                     widget::row()
-                        .push(widget::image(image_handle).width(width).height(height))
+                        .push(main_element)
                         .height(Length::Fill)
                         .align_y(Vertical::Center),
                 )
@@ -260,7 +254,9 @@ impl cosmic::Application for AppModel {
             },
             Message::OpenFileDialog => {
                 if !self.opening_file {
-                    self.emulator.pause_emulation();
+                    if let Some(emulator) = &mut self.emulator {
+                        emulator.pause_emulation();
+                    }
                     self.opening_file = true;
                     return Task::future(async {
                         let file = AsyncFileDialog::new()
@@ -276,11 +272,17 @@ impl cosmic::Application for AppModel {
             }
             Message::OpenFileResult(path_buf) => {
                 self.opening_file = false;
-                self.emulator.resume_emulation();
-                if let Some(path_buf) = path_buf {
-                    if let Ok(rom) = load_rom(&path_buf) {
-                        self.rom_path = path_buf.clone();
-                        self.emulator.load_rom(rom, path_buf);
+                if let Some(emulator) = &mut self.emulator {
+                    emulator.resume_emulation();
+                }
+
+                if let Some(rom_path) = path_buf {
+                    if let Ok(rom) = load_rom(&rom_path) {
+                        if let Some(emulator) = &mut self.emulator {
+                            emulator.load_rom(rom, rom_path);
+                        } else {
+                            self.emulator = Some(Emulator::new(rom, rom_path, AppModel::keymap()))
+                        }
                     } else {
                         tracing::error!("error loading rom");
                         // TODO: Show error message to user.
@@ -288,13 +290,19 @@ impl cosmic::Application for AppModel {
                 }
             }
             Message::KeyDown(_modifiers, key_code) => {
-                self.emulator.key_down(key_code);
+                if let Some(emulator) = &mut self.emulator {
+                    emulator.key_down(key_code);
+                }
             }
             Message::KeyUp(_modifiers, key_code) => {
-                self.emulator.key_up(key_code);
+                if let Some(emulator) = &mut self.emulator {
+                    emulator.key_up(key_code);
+                }
             }
             Message::Tick => {
-                self.emulator.tick();
+                if let Some(emulator) = &mut self.emulator {
+                    emulator.tick();
+                }
             }
         }
         Task::none()
@@ -345,9 +353,13 @@ impl AppModel {
     pub fn update_title(&mut self) -> Task<cosmic::Action<Message>> {
         let mut window_title = fl!("app-title");
 
-        if let Some(rom_name) = self.rom_path.file_name() {
+        if let Some(Some(rom_name)) = self
+            .emulator
+            .as_ref()
+            .map(|e| e.rom_path().file_name().map(|f| f.to_string_lossy()))
+        {
             window_title.push_str(" — ");
-            window_title.push_str(&rom_name.to_string_lossy());
+            window_title.push_str(&rom_name);
         }
 
         if let Some(id) = self.core.main_window_id() {
@@ -355,6 +367,19 @@ impl AppModel {
         } else {
             Task::none()
         }
+    }
+
+    fn keymap() -> HashMap<KeyCode, Button> {
+        let mut keymap = HashMap::new();
+        keymap.insert(KeyCode::KeyX, Button::A);
+        keymap.insert(KeyCode::KeyZ, Button::B);
+        keymap.insert(KeyCode::Space, Button::Select);
+        keymap.insert(KeyCode::Enter, Button::Start);
+        keymap.insert(KeyCode::ArrowUp, Button::Up);
+        keymap.insert(KeyCode::ArrowDown, Button::Down);
+        keymap.insert(KeyCode::ArrowLeft, Button::Left);
+        keymap.insert(KeyCode::ArrowRight, Button::Right);
+        keymap
     }
 }
 
